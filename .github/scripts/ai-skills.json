@@ -1,0 +1,24 @@
+{
+  "model_version": "claude-sonnet-4-6",
+  "test_reports_glob": "target/surefire-reports/*.txt",
+  "max_retries": 10,
+  "target_exceptions": [
+    "java.lang.NullPointerException",
+    "java.lang.ClassCastException",
+    "java.lang.IndexOutOfBoundsException",
+    "java.lang.IllegalArgumentException"
+  ],
+  "spring_di_rules": [
+    "UnsatisfiedDependencyException: Look for missing @Service, @Component, or @Repository annotations on the required bean.",
+    "NoSuchBeanDefinitionException: The required bean is not defined or component scanning is missing it.",
+    "NoUniqueBeanDefinitionException: Multiple beans of the same type exist. Fix by using @Qualifier or @Primary.",
+    "BeanCreationException: Often caused by missing configuration properties or failing constructor logic. Check for @Value annotations or missing environment variables."
+  ],
+  "file_extraction_rules": [
+    "Target APPLICATION code (src/main/java) first.",
+    "CRITICAL: DO NOT return test files (files ending with 'Test.java' or 'Tests.java') unless the error is strictly a compilation syntax error within the test itself.",
+    "If a test fails due to a runtime exception (e.g., NullPointerException), look deeper into the stack trace to find the actual service, controller, or component that threw the error.",
+    "Spring Dependency Injection Errors: The user code will NOT be in the execution stack. Read the exception message carefully to identify missing annotations or bean conflicts.",
+    "Ignore standard Java libraries (java.base) and framework internal classes."
+  ]
+}
