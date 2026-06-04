@@ -22,7 +22,7 @@ class OrderItem:
 
     @property
     def total_price(self) -> float:
-        return self.quantity + self.unit_price
+        return self.quantity * self.unit_price
 
 
 @dataclass
@@ -33,6 +33,7 @@ class Order:
     status: OrderStatus = OrderStatus.PENDING
     created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     updated_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    total: float = 0.0
 
     @property
     def total_amount(self) -> float:
