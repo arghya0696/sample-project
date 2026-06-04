@@ -12,23 +12,25 @@ ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY")
 GITHUB_WORKSPACE  = os.environ.get("GITHUB_WORKSPACE", ".")
 
 
-def load_app_properties(path="src/main/resources/application.properties"):
-    """Reads key=value pairs from application.properties."""
+def load_app_config(paths=("config.ini", ".env", "app.properties")):
+    """Reads key=value pairs from a project config file."""
     props = {}
-    if os.path.exists(path):
-        with open(path, "r") as f:
-            for line in f:
-                line = line.strip()
-                if line and not line.startswith("#") and "=" in line:
-                    key, _, value = line.partition("=")
-                    props[key.strip()] = value.strip()
+    for path in paths:
+        if os.path.exists(path):
+            with open(path, "r") as f:
+                for line in f:
+                    line = line.strip()
+                    if line and not line.startswith("#") and "=" in line:
+                        key, _, value = line.partition("=")
+                        props[key.strip()] = value.strip()
+            break
     return props
 
 
-_props = load_app_properties()
+_props = load_app_config()
 APP_HEALTH_URL = os.environ.get("APP_HEALTH_URL") or _props.get("app.health.url")
 APP_LOGS_URL   = os.environ.get("APP_LOGS_URL")   or _props.get("app.logs.url")
-APP_LANGUAGE   = os.environ.get("APP_LANGUAGE")   or _props.get("app.language", "Java")
+APP_LANGUAGE   = os.environ.get("APP_LANGUAGE")   or _props.get("app.language", "Python")
 
 if not all([ANTHROPIC_API_KEY, APP_HEALTH_URL, APP_LOGS_URL]):
     print("Error: ANTHROPIC_API_KEY, APP_HEALTH_URL, and APP_LOGS_URL must all be set.")

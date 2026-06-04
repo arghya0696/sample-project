@@ -4,13 +4,13 @@ import subprocess
 import re
 import json
 import anthropic
+import xml.etree.ElementTree as ET
 from pathlib import Path
 from git_manager import GitManager
 from typing import List, Dict, Optional
 import logging
 import shutil
 
-# 1. Initialize the Anthropic client
 api_key = os.environ.get("ANTHROPIC_API_KEY")
 if not api_key:
     print("Error: ANTHROPIC_API_KEY environment variable is not set.")
@@ -22,7 +22,6 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(me
 logger = logging.getLogger(__name__)
 
 def load_skills(file_path=".github/scripts/ai-skills.json"):
-    """Loads the AI skills from an external JSON file."""
     if os.path.exists(file_path):
         logger.info(f"Loaded AI skills from {file_path}")
         with open(file_path, 'r') as file:
@@ -31,78 +30,92 @@ def load_skills(file_path=".github/scripts/ai-skills.json"):
         logger.warning(f"{file_path} not found. Proceeding with default skills.")
         return {
             "model_version": "claude-sonnet-4-6",
-            "test_reports_glob": "target/surefire-reports/*.txt",
+            "test_reports_glob": "reports/test-results.xml",
             "target_exceptions": [],
             "file_extraction_rules": [
-                "Look for the highest user-created classes in the execution stack.",
-                "Ignore standard Java libraries (java.base) and framework internal classes."
+                "Look for the highest user-created modules in the traceback.",
+                "Ignore standard library modules and third-party framework internals."
             ]
         }
 
 def get_coding_standards(file_path=".github/scripts/coding-standards.md"):
-    """Reads the coding standards from an external markdown file."""
     if os.path.exists(file_path):
         logger.info(f"Loaded coding standards from {file_path}")
         with open(file_path, 'r') as file:
             return file.read()
     else:
         logger.warning(f"{file_path} not found. Proceeding with default AI knowledge.")
-        return "Apply general modern Java best practices."
+        return "Apply general modern Python best practices."
 
 def build_dynamic_context(skills: dict) -> str:
-    """Dynamically builds prompt context from all list-based rules in the skills JSON."""
     context_blocks = []
-
     for key, rules in skills.items():
         if isinstance(rules, list) and rules:
             category_title = key.replace('_', ' ').upper()
             rules_str = "\n".join([f"- {rule}" for rule in rules])
             context_blocks.append(f"### {category_title} ###\n{rules_str}")
-
     return "\n\n".join(context_blocks)
 
 def find_exception_in_reports(target_exceptions, reports_glob):
-    """Scans test reports for target exceptions."""
+    """Scans pytest JUnit XML reports for test failures."""
     reports = glob.glob(reports_glob)
 
     fallback_content, fallback_exc_type = None, None
 
     for report in reports:
-        if not os.path.isfile(report): continue
-        with open(report, 'r') as file:
-            content = file.read()
+        if not os.path.isfile(report):
+            continue
+        try:
+            tree = ET.parse(report)
+            root = tree.getroot()
 
-            for exc_type in target_exceptions:
-                if exc_type in content:
-                    logger.info(f"Found targeted {exc_type} in report: {report}")
-                    return content, exc_type
+            for testcase in root.findall('.//testcase'):
+                for tag in ('failure', 'error'):
+                    node = testcase.find(tag)
+                    if node is None:
+                        continue
+                    content = (node.get('message', '') + '\n' + (node.text or '')).strip()
 
-            if not fallback_exc_type:
-                match = re.search(r'([a-zA-Z0-9_.]+(?:Exception|Error|Failure))', content)
-                if match:
-                    fallback_exc_type = match.group(1)
-                    fallback_content = content
+                    for exc_type in target_exceptions:
+                        if exc_type in content:
+                            logger.info(f"Found targeted {exc_type} in {report}")
+                            return content, exc_type
+
+                    if not fallback_exc_type:
+                        match = re.search(r'([A-Z][a-zA-Z]*(?:Error|Exception))', content)
+                        if match:
+                            fallback_exc_type = match.group(1)
+                            fallback_content = content
+
+        except ET.ParseError:
+            with open(report, 'r') as f:
+                content = f.read()
+            match = re.search(r'([A-Z][a-zA-Z]*(?:Error|Exception))', content)
+            if match and not fallback_exc_type:
+                fallback_exc_type = match.group(1)
+                fallback_content = content
 
     return fallback_content, fallback_exc_type
 
 def get_failing_files_from_ai(stack_trace: str, skills: dict) -> List[str]:
-    """Uses Claude to intelligently identify ALL failing files from the stack trace or compiler log."""
+    """Uses Claude to identify failing Python source files from the traceback."""
     dynamic_knowledge_base = build_dynamic_context(skills)
-    model_version = skills.get("model_version", "claude-3-5-sonnet-20241022")
+    model_version = skills.get("model_version", "claude-sonnet-4-6")
 
     prompt = f"""
-    Analyze the following Java stack trace or compilation error log to identify the main project source files that need to be modified.
-    
+    Analyze the following Python traceback or test failure output to identify the project source files that need to be modified.
+
     CRITICAL EXTRACTION CONSTRAINTS:
-    1. Your primary goal is to find the broken APPLICATION source code (e.g., files in src/main/java).
-    2. DO NOT return Test classes (e.g., GithubActionDemoApplicationTests.java) just because the test failed. You must trace the error down the stack to find the actual service or component causing the failure.
-    
+    1. Your primary goal is to find the broken APPLICATION source code (not test files, not third-party libraries).
+    2. DO NOT return test files (e.g., test_*.py or *_test.py) just because the test failed. Trace the error to the actual module causing the failure.
+    3. Ignore standard library modules and installed packages.
+
     {dynamic_knowledge_base}
-    
+
     Stack Trace / Error Log:
     {stack_trace}
-    
-    Return ONLY a raw JSON list of exact file names with their extensions (e.g., ["NPETestServiceImpl.java", "MyConfig.java"]). Do not output markdown blocks or any other text.
+
+    Return ONLY a raw JSON list of exact file names with their extensions (e.g., ["order_service.py", "order.py"]). Do not output markdown blocks or any other text.
     """
 
     message = client.messages.create(
@@ -130,37 +143,37 @@ def get_failing_files_from_ai(stack_trace: str, skills: dict) -> List[str]:
 def generate_fix(file_path, stack_trace, exc_type, coding_standards, skills):
     """Asks Claude to fix the exception using external coding standards and skill rules."""
     with open(file_path, 'r') as file:
-        java_code = file.read()
+        python_code = file.read()
 
     dynamic_knowledge_base = build_dynamic_context(skills)
-    model_version = skills.get("model_version", "claude-3-5-sonnet-20241022")
+    model_version = skills.get("model_version", "claude-sonnet-4-6")
 
     system_instructions = f"""
-    You are a Senior Java Staff Engineer resolving CI/CD pipeline failures. 
+    You are a Senior Python Staff Engineer resolving CI/CD pipeline failures.
     You must strictly adhere to the following Team Coding Standards.
-    
+
     CRITICAL CONSTRAINTS:
-    1. NEVER delete, skip, or comment out test cases (e.g., `@Test` methods) to resolve a failure. 
-    2. If you are explicitly provided a Test file to fix, you may ONLY update assertions, mock behaviors, or fix syntax errors. You CANNOT remove the test logic.
+    1. NEVER delete, skip, or comment out test cases to resolve a failure.
+    2. If you are given a test file to fix, you may ONLY update assertions, mock behaviors, or fix syntax errors. You CANNOT remove test logic.
     3. Your primary goal is to fix the underlying source code logic to make the tests pass naturally.
-    
+
     ### TEAM CODING STANDARDS ###
     {coding_standards}
-    
+
     {dynamic_knowledge_base}
     """
 
     user_prompt = f"""
-    The following code throws a {exc_type}.
-    
+    The following code raises a {exc_type}.
+
     Error Log / Stack Trace:
     {stack_trace}
-    
-    Java Code (File: {file_path}):
-    {java_code}
-    
-    Fix the {exc_type} in the code addressing the root cause indicated by the stack trace or compiler error.
-    Return ONLY the raw, updated Java code. Do not include markdown formatting like ```java.
+
+    Python Code (File: {file_path}):
+    {python_code}
+
+    Fix the {exc_type} in the code addressing the root cause indicated by the traceback.
+    Return ONLY the raw, updated Python code. Do not include markdown formatting like ```python.
     """
 
     message = client.messages.create(
@@ -170,10 +183,9 @@ def generate_fix(file_path, stack_trace, exc_type, coding_standards, skills):
         messages=[{"role": "user", "content": user_prompt}]
     )
 
-    return message.content[0].text.replace('```java', '').replace('```', '').strip()
+    return message.content[0].text.replace('```python', '').replace('```', '').strip()
 
 def create_pr_and_commit(git_manager: GitManager, fixes_applied: List[Dict]) -> Optional[str]:
-
     if not fixes_applied:
         return None
 
@@ -183,7 +195,6 @@ def create_pr_and_commit(git_manager: GitManager, fixes_applied: List[Dict]) -> 
         logger.info("No changes detected")
         return None
 
-    # capture original branch BEFORE checkout
     source_branch = (
         os.environ.get("GITHUB_HEAD_REF")
         or os.environ.get("GITHUB_REF_NAME")
@@ -211,12 +222,12 @@ def create_pr_and_commit(git_manager: GitManager, fixes_applied: List[Dict]) -> 
         return git_manager.get_existing_pr_url(branch_name)
 
     logger.info("Branch exists but PR is merged/closed — creating a new PR.")
-
     return git_manager.create_pr(
         branch_name=branch_name,
         files_changed=fixed_files,
         base_branch=source_branch
     )
+
 
 if __name__ == "__main__":
     workspace = Path(os.getcwd())
@@ -228,7 +239,7 @@ if __name__ == "__main__":
     standards = get_coding_standards(".github/scripts/coding-standards.md")
 
     MAX_RETRIES = skills.get("max_retries", 3)
-    reports_glob = skills.get("test_reports_glob", "target/surefire-reports/*.txt")
+    reports_glob = skills.get("test_reports_glob", "reports/test-results.xml")
     reports_dir = os.path.dirname(reports_glob) or "."
 
     attempt = 1
@@ -241,9 +252,9 @@ if __name__ == "__main__":
         logger.info(f"--- Attempt {attempt} of {MAX_RETRIES} ---")
 
         if compilation_error_output:
-            logger.info("Using compilation error output from previous attempt...")
+            logger.info("Using error output from previous attempt...")
             stack_trace = compilation_error_output
-            exc_type = "Java Compilation Error"
+            exc_type = "Python Error"
             compilation_error_output = None
         else:
             stack_trace, exc_type = find_exception_in_reports(skills.get("target_exceptions", []), reports_glob)
@@ -260,7 +271,7 @@ if __name__ == "__main__":
         failing_files = get_failing_files_from_ai(stack_trace, skills)
 
         if not failing_files:
-            logger.warning("Could not map stack trace/error to local files. Breaking loop.")
+            logger.warning("Could not map traceback to local files. Breaking loop.")
             break
 
         logger.info(f"AI identified failing files: {failing_files}. Generating fixes...")
@@ -270,39 +281,37 @@ if __name__ == "__main__":
             with open(file_path, "w") as file:
                 file.write(fixed_code)
                 print(f"fix applied to {file_path}:\n", fixed_code)
-
             modified_files_map[file_path] = exc_type
 
-        # Use the dynamic directory extracted from the glob for cleanup
         if os.path.exists(reports_dir):
             shutil.rmtree(reports_dir)
             logger.info(f"Cleaned up old test reports at {reports_dir}.")
 
-        logger.info("Running Maven test to validate fixes...")
-        test_result = subprocess.run(["mvn", "test"], capture_output=True, text=True)
+        logger.info("Running pytest to validate fixes...")
+        os.makedirs(reports_dir, exist_ok=True)
+        test_result = subprocess.run(
+            ["pytest", f"--junitxml={reports_glob}", "-v"],
+            capture_output=True,
+            text=True
+        )
 
         if test_result.returncode == 0:
-            logger.info("✅ Tests passed successfully!")
+            logger.info("Tests passed successfully!")
             success = True
             break
         else:
-            logger.error(f"❌ Fix validation failed on attempt {attempt}.")
-
-            # Validate against the dynamic paths
-            if not os.path.exists(reports_dir) or not glob.glob(reports_glob):
-                logger.error("Compilation failed. Extracting Maven error log for AI correction.")
-                compilation_error_output = test_result.stdout[-4000:]
-
+            logger.error(f"Fix validation failed on attempt {attempt}.")
+            if not glob.glob(reports_glob):
+                logger.error("No test report generated. Extracting pytest output for AI correction.")
+                compilation_error_output = (test_result.stdout + test_result.stderr)[-4000:]
             attempt += 1
 
     if success and modified_files_map:
         logger.info("Generating Pull Request with all accumulated fixes...")
-
         fixes_applied = [{"file": path, "exception": exc} for path, exc in modified_files_map.items()]
-
         pr_url = create_pr_and_commit(git_manager, fixes_applied)
         if pr_url:
-            print(f"🎉 PR Created: {pr_url}")
+            print(f"PR Created: {pr_url}")
         else:
             print("Failed to create PR.")
     elif not success and modified_files_map:

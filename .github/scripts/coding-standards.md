@@ -1,13 +1,12 @@
-1. **Null Safety**: ALWAYS prefer `java.util.Optional` (e.g., `Optional.ofNullable(...)`) for handling potential null objects or variables. Do NOT blindly assign default primitive values (like 0 or "") unless contextually required.
-2. **Parameter Validation**: If a method parameter is null and shouldn't be, use `java.util.Objects.requireNonNull()` rather than manual if/else blocks.
-3. **Fail-Fast**: Never catch NullPointerException. Fix the root cause instead.
-4. **Modern Java**: Use Java 21 features where appropriate (Pattern matching, records, enhance switch etc.).
-5. **Immutability**: Prefer `final` keywords for variables that should not be reassigned.
-6. **Testing**: Don't delete any test cases, try to see what needs a fix — code or test.
+1. **None Safety**: Always check for `None` before accessing attributes or calling methods. Prefer early returns or `if x is None` guards. Use `Optional[T]` type hints to make nullable values explicit.
+2. **Parameter Validation**: Raise `ValueError` or `TypeError` with a clear message when inputs are invalid. Do this at function boundaries — not deep in internal logic.
+3. **Fail-Fast**: Never catch `AttributeError` or `TypeError` caused by a `None` value — fix the root cause instead of masking it.
+4. **Modern Python**: Use Python 3.11+ features where appropriate (match/case, type hints, dataclasses, `tomllib`, exception groups, etc.).
+5. **Immutability**: Prefer tuples over lists and `frozenset` over `set` for data that should not change after creation.
+6. **Testing**: Don't delete any test cases. If a test is failing, fix the source code or correct the assertion — never skip or comment out the test.
 7. **Structural Integrity — NEVER VIOLATE**:
-   - Do NOT change the package declaration under any circumstances.
-   - Do NOT rename any class, interface, enum, or method.
-   - Do NOT change a class to an interface, abstract class, enum, or any other type.
-   - Do NOT add, remove, or reorder import statements beyond what is strictly required by the fix.
-   - Do NOT change method signatures (return type, parameter names, parameter types).
-   - Only fix the exact Sonar issues listed. Make the smallest possible change to resolve each issue.
+   - Do NOT change the module name or package structure.
+   - Do NOT rename any class, function, or method.
+   - Do NOT change function signatures (return type, parameter names, parameter types).
+   - Do NOT add, remove, or reorder imports beyond what is strictly required by the fix.
+   - Only fix the exact issues identified. Make the smallest possible change to resolve each issue.

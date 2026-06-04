@@ -25,33 +25,31 @@ def get_coding_standards(file_path=".github/scripts/coding-standards.md"):
     if os.path.exists(file_path):
         with open(file_path, 'r') as f:
             return f.read()
-    return "Apply general modern Java best practices."
+    return "Apply general modern Python best practices."
 
 
 def run_sonar_scan():
-    print("Starting SonarCloud analysis via Maven...")
+    print("Starting SonarCloud analysis via sonar-scanner...")
 
     cmd = [
-        "mvn",
-        "clean",
-        "verify",
-        "sonar:sonar",
-        f"-Dsonar.token={SONAR_TOKEN}"
+        "sonar-scanner",
+        f"-Dsonar.token={SONAR_TOKEN}",
+        f"-Dsonar.host.url={SONAR_HOST_URL}",
+        f"-Dsonar.projectKey={SONAR_PROJECT_KEY}",
     ]
 
-    result = subprocess.run(cmd)
+    result = subprocess.run(cmd, capture_output=True, text=True)
 
     if result.returncode != 0:
-        print("Warning: Maven Sonar scan exited with non-zero status. Proceeding anyway.")
-        logger.error(f"Command failed: {' '.join(cmd)}")
-        logger.error(f"stdout: {result.stdout}")
-        logger.error(f"stderr: {result.stderr}")
+        print("Warning: sonar-scanner exited with non-zero status. Proceeding anyway.")
+        print(f"stdout: {result.stdout[-2000:]}")
+        print(f"stderr: {result.stderr[-1000:]}")
     else:
         print("SonarCloud scan submitted successfully.")
 
 
-def wait_for_analysis(report_task_path="target/sonar/report-task.txt", timeout=300, poll_interval=10):
-    """Reads the ceTaskId from the Maven Sonar report and polls until analysis is complete."""
+def wait_for_analysis(report_task_path=".scannerwork/report-task.txt", timeout=300, poll_interval=10):
+    """Reads the ceTaskId from the sonar-scanner report and polls until analysis is complete."""
     if not os.path.exists(report_task_path):
         print(f"Warning: {report_task_path} not found. Skipping analysis wait.")
         return
@@ -90,7 +88,7 @@ def wait_for_analysis(report_task_path="target/sonar/report-task.txt", timeout=3
 
 
 def fetch_sonar_issues():
-    """Fetches open bugs, vulnerabilities, and code smells from SonarCloud (default branch)."""
+    """Fetches open bugs, vulnerabilities, and code smells from SonarCloud."""
     url = f"{SONAR_HOST_URL}/api/issues/search"
     params = {
         "componentKeys": SONAR_PROJECT_KEY,
@@ -106,12 +104,9 @@ def fetch_sonar_issues():
 
 
 def group_issues_by_file(issues):
-    """Groups issues by their source file component path."""
     grouped = {}
     for issue in issues:
         component = issue.get("component", "")
-        # component looks like: org:repo:src/main/java/com/tw/Foo.java
-        # extract just the file path after the last colon
         file_path = component.split(":")[-1] if ":" in component else component
         if file_path not in grouped:
             grouped[file_path] = []
@@ -132,7 +127,7 @@ def format_issues_for_prompt(issues):
 
 
 def generate_fix(file_path, issues, coding_standards):
-    """Asks Claude to fix all Sonar issues in a file."""
+    """Asks Claude to fix all Sonar issues in a Python file."""
     if not os.path.exists(file_path):
         print(f"  Skipping {file_path} — file not found locally.")
         return None
@@ -142,14 +137,14 @@ def generate_fix(file_path, issues, coding_standards):
 
     issues_text = format_issues_for_prompt(issues)
 
-    system_prompt = f"""You are a Senior Java Staff Engineer fixing SonarCloud issues in a CI/CD pipeline.
+    system_prompt = f"""You are a Senior Python Staff Engineer fixing SonarCloud issues in a CI/CD pipeline.
 You must strictly follow these team coding standards:
 
 ### TEAM CODING STANDARDS ###
 {coding_standards}
 """
 
-    user_prompt = f"""Fix all of the following SonarCloud issues in this Java file.
+    user_prompt = f"""Fix all of the following SonarCloud issues in this Python file.
 
 File: {file_path}
 
@@ -159,7 +154,7 @@ Issues to fix:
 Current source code:
 {source_code}
 
-Return ONLY the raw updated Java code. Do not include markdown formatting like ```java.
+Return ONLY the raw updated Python code. Do not include markdown formatting like ```python.
 """
 
     message = client.messages.create(
@@ -169,16 +164,14 @@ Return ONLY the raw updated Java code. Do not include markdown formatting like `
         messages=[{"role": "user", "content": user_prompt}]
     )
 
-    fixed_code = message.content[0].text.replace("```java", "").replace("```", "").strip()
-    return fixed_code
+    return message.content[0].text.replace("```python", "").replace("```", "").strip()
 
 
 def commit_fixes(changed_files):
     workspace = Path(os.environ.get("GITHUB_WORKSPACE", "."))
     git = GitManager(workspace)
 
-    # Capture source branch BEFORE create_branch() switches to the fix branch
-    source_branch = os.environ.get("GITHUB_REF_NAME", "master")
+    source_branch = os.environ.get("GITHUB_REF_NAME", "main")
     print(f"Source branch: {source_branch}")
 
     branch_name, created_now = git.create_branch()
@@ -194,10 +187,8 @@ def commit_fixes(changed_files):
         return
 
     git.push_branch(branch_name)
+    print(f"Fixes committed and pushed to branch '{branch_name}'.")
 
-    print(f"Fixes committed and pushed to new branch '{branch_name}'.")
-
-    # NEW: create PR
     pr_url = git.create_pr(
         branch_name=branch_name,
         files_changed=changed_files,
@@ -205,7 +196,7 @@ def commit_fixes(changed_files):
     )
 
     if pr_url:
-        print(f"🎉 PR Created: {pr_url}")
+        print(f"PR Created: {pr_url}")
     else:
         print("PR creation failed or PR already exists.")
 

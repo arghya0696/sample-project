@@ -1,13 +1,12 @@
-name: Spring Boot Build and Test
+name: Python Build and Test
 
 on:
   push:
     branches: '**'
   pull_request:
     branches: '**'
-  workflow_dispatch: 
+  workflow_dispatch:
 
-# Added pull-requests: write so the AI can successfully open the PR
 permissions:
   contents: write
   pull-requests: write
@@ -16,7 +15,6 @@ env:
   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
 jobs:
-  # Job 1: Runs your build, install, and tests automatically
   build-and-test:
     runs-on: ubuntu-latest
 
@@ -26,32 +24,25 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Set up JDK 21
-        uses: actions/setup-java@v4
-        with:
-          java-version: '21'
-          distribution: 'temurin'
-          cache: maven
-
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
 
-      - name: Install Python Dependencies
-        run: pip install anthropic requests
+      - name: Install Dependencies
+        run: |
+          pip install -r requirements.txt
+          pip install anthropic requests pytest pytest-cov
 
       - name: Stage 1 - Print starting
         run: echo "Starting..."
 
-      - name: Stage 2 - Run Maven Clean Install
-        run: mvn clean install -DskipTests
+      - name: Stage 2 - Run Tests
+        run: |
+          mkdir -p reports
+          pytest --junitxml=reports/test-results.xml -v
 
-      - name: Stage 3 - Run Maven Test
-        run: mvn test
-
-      # Runs automatically ONLY if maven test fails
-      - name: Stage 5 - AI Self-Healing Agent (Test Failures)
+      - name: Stage 3 - AI Self-Healing Agent (Test Failures)
         if: failure()
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
@@ -59,17 +50,16 @@ jobs:
           echo "Tests failed. Invoking AI self-healing script..."
           python .github/scripts/self_healer.py
 
-      - name: Stage 6 - Print Result
+      - name: Stage 4 - Print Result
         if: always()
         run: |
           echo "Done with test. Result: ${{ job.status }}"
 
-  # Job 2: Pauses here and waits for you to click "Approve" in GitHub UI
   sonar-analysis:
     needs: build-and-test
     runs-on: ubuntu-latest
-    environment: manual-sonar-approval 
-    
+    environment: manual-sonar-approval
+
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
@@ -78,23 +68,22 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
           persist-credentials: true
 
-      - name: Set up JDK 21
-        uses: actions/setup-java@v4
-        with:
-          java-version: '21'
-          distribution: 'temurin'
-          cache: maven
-  
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
 
-      # ADD THIS STEP TO FIX THE ERROR
       - name: Install Python Dependencies
         run: pip install anthropic requests
 
-      - name: Stage 5 - AI Sonar Self-Healing Agent
+      - name: Install sonar-scanner
+        run: |
+          curl -sSLo /tmp/sonar-scanner.zip \
+            https://binaries.sonarsource.com/Distribution/sonar-scanner-cli/sonar-scanner-cli-5.0.1.3006-linux.zip
+          unzip -q /tmp/sonar-scanner.zip -d /opt
+          echo "/opt/sonar-scanner-5.0.1.3006-linux/bin" >> $GITHUB_PATH
+
+      - name: AI Sonar Self-Healing Agent
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}

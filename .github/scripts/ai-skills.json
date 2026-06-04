@@ -1,24 +1,26 @@
 {
   "model_version": "claude-sonnet-4-6",
-  "test_reports_glob": "target/surefire-reports/*.txt",
+  "test_reports_glob": "reports/test-results.xml",
   "max_retries": 10,
   "target_exceptions": [
-    "java.lang.NullPointerException",
-    "java.lang.ClassCastException",
-    "java.lang.IndexOutOfBoundsException",
-    "java.lang.IllegalArgumentException"
+    "AttributeError",
+    "TypeError",
+    "ValueError",
+    "KeyError",
+    "IndexError"
   ],
-  "spring_di_rules": [
-    "UnsatisfiedDependencyException: Look for missing @Service, @Component, or @Repository annotations on the required bean.",
-    "NoSuchBeanDefinitionException: The required bean is not defined or component scanning is missing it.",
-    "NoUniqueBeanDefinitionException: Multiple beans of the same type exist. Fix by using @Qualifier or @Primary.",
-    "BeanCreationException: Often caused by missing configuration properties or failing constructor logic. Check for @Value annotations or missing environment variables."
+  "python_common_errors": [
+    "AttributeError: Often caused by accessing a method or attribute on None or a wrong type. Check that the object is initialised before use.",
+    "TypeError: Argument type mismatch — verify function signatures and ensure callers pass the correct types.",
+    "ValueError: Invalid value passed to a function. Check input validation and data transformations.",
+    "KeyError: Dictionary key does not exist. Use dict.get() or check membership before access.",
+    "IndexError: List or sequence index out of range. Validate lengths before indexing."
   ],
   "file_extraction_rules": [
-    "Target APPLICATION code (src/main/java) first.",
-    "CRITICAL: DO NOT return test files (files ending with 'Test.java' or 'Tests.java') unless the error is strictly a compilation syntax error within the test itself.",
-    "If a test fails due to a runtime exception (e.g., NullPointerException), look deeper into the stack trace to find the actual service, controller, or component that threw the error.",
-    "Spring Dependency Injection Errors: The user code will NOT be in the execution stack. Read the exception message carefully to identify missing annotations or bean conflicts.",
-    "Ignore standard Java libraries (java.base) and framework internal classes."
+    "Target APPLICATION code (modules in the project root or src/) first.",
+    "CRITICAL: DO NOT return test files (files matching test_*.py or *_test.py) unless the error is strictly a syntax error within the test itself.",
+    "If a test fails due to a runtime exception, trace the traceback to find the actual service or module that raised the error.",
+    "Ignore standard library modules (e.g., pathlib, os, datetime) and installed third-party packages.",
+    "The file to fix is usually the deepest user-owned frame in the traceback before the exception line."
   ]
 }
