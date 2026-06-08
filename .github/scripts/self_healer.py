@@ -255,7 +255,6 @@ if __name__ == "__main__":
 
     MAX_RETRIES = skills.get("max_retries", 5)
     test_command = skills.get("test_command", ["mvn", "test"])
-    logger.info(f"test command is : {test_command}")
 
     default_cleanup = [os.path.dirname(skills["test_reports_glob"]) or "."]
     cleanup_directories = skills.get("cleanup_directories", default_cleanup)
