@@ -1,7 +1,54 @@
 {
   "model_version": "claude-sonnet-4-6",
   "test_reports_glob": "reports/test-results.xml",
+  "test_command": ["pytest", "--junitxml=reports/test-results.xml", "-v"],
+  "cleanup_directories": ["reports"],
   "max_retries": 10,
+  "compilation_error_identifier": "Python Syntax/Import Error",
+  "fallback_exception_regex": "([A-Z][a-zA-Z]*(?:Error|Exception))",
+
+  "file_extraction_prompt": [
+    "Analyze the following error log to identify the main project source files that need to be modified.",
+    "",
+    "CRITICAL EXTRACTION CONSTRAINTS:",
+    "1. For crashes (e.g., TypeError, AttributeError), identify ONLY the deepest application file in the stack trace.",
+    "2. For AssertionErrors (logic/math bugs), the broken file might NOT be in the traceback paths! Read the assert message to identify the broken class or property (e.g., Order, OrderItem), and deduce the path to that model file (e.g., 'models/order.py').",
+    "3. DO NOT return Test classes unless the error is strictly a syntax error within the test itself.",
+    "",
+    "{dynamic_knowledge_base}",
+    "",
+    "Stack Trace / Error Log:",
+    "{stack_trace}"
+  ],
+
+  "fix_generation_system_prompt": [
+    "You are a Senior Software Engineer resolving CI/CD pipeline failures.",
+    "You must strictly adhere to the following Team Coding Standards.",
+    "",
+    "CRITICAL CONSTRAINTS:",
+    "1. NEVER delete, skip, or comment out test cases to resolve a failure.",
+    "2. NEVER alter the class name, class definition, or package declaration of the provided file.",
+    "3. NEVER delete unrelated existing methods. Only fix the specific method causing the error.",
+    "4. DO NOT completely rewrite the file. Keep the structure intact.",
+    "",
+    "### TEAM CODING STANDARDS ###",
+    "{coding_standards}",
+    "",
+    "{dynamic_knowledge_base}"
+  ],
+
+  "fix_generation_user_prompt": [
+    "The following code throws a {exc_type}.",
+    "",
+    "Error Log / Stack Trace:",
+    "{stack_trace}",
+    "",
+    "Code (File: {file_path}):",
+    "{code}",
+    "",
+    "Fix the {exc_type} in the code addressing the root cause indicated by the stack trace or compiler error."
+  ],
+
   "target_exceptions": [
     "AttributeError",
     "TypeError",
@@ -14,7 +61,8 @@
     "TypeError: Argument type mismatch — verify function signatures and ensure callers pass the correct types.",
     "ValueError: Invalid value passed to a function. Check input validation and data transformations.",
     "KeyError: Dictionary key does not exist. Use dict.get() or check membership before access.",
-    "IndexError: List or sequence index out of range. Validate lengths before indexing."
+    "IndexError: List or sequence index out of range. Validate lengths before indexing.",
+    "AssertionError: This means a logical calculation or state transition failed. Look at the expected vs actual values. If the math is wrong (e.g., 38.0 == 45.0), trace the properties involved back to their source models/dataclasses to fix the arithmetic."
   ],
   "file_extraction_rules": [
     "Target APPLICATION code (modules in the project root or src/) first.",
