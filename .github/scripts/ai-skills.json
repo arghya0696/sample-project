@@ -11,8 +11,9 @@
     "Analyze the following error log to identify the main project source files that need to be modified.",
     "",
     "CRITICAL EXTRACTION CONSTRAINTS:",
-    "1. Identify ONLY the deepest file in the stack trace that belongs to our application (the root cause). Do not return every file in the trace.",
-    "2. DO NOT return Test classes unless the error is strictly a syntax error within the test itself.",
+    "1. For crashes (e.g., TypeError, AttributeError), identify ONLY the deepest application file in the stack trace.",
+    "2. For AssertionErrors (logic/math bugs), the broken file might NOT be in the traceback paths! Read the assert message to identify the broken class or property (e.g., Order, OrderItem), and deduce the path to that model file (e.g., 'models/order.py').",
+    "3. DO NOT return Test classes unless the error is strictly a syntax error within the test itself.",
     "",
     "{dynamic_knowledge_base}",
     "",
@@ -60,7 +61,8 @@
     "TypeError: Argument type mismatch — verify function signatures and ensure callers pass the correct types.",
     "ValueError: Invalid value passed to a function. Check input validation and data transformations.",
     "KeyError: Dictionary key does not exist. Use dict.get() or check membership before access.",
-    "IndexError: List or sequence index out of range. Validate lengths before indexing."
+    "IndexError: List or sequence index out of range. Validate lengths before indexing.",
+    "AssertionError: This means a logical calculation or state transition failed. Look at the expected vs actual values. If the math is wrong (e.g., 38.0 == 45.0), trace the properties involved back to their source models/dataclasses to fix the arithmetic."
   ],
   "file_extraction_rules": [
     "Target APPLICATION code (modules in the project root or src/) first.",
