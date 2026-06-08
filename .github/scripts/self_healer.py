@@ -255,6 +255,7 @@ if __name__ == "__main__":
 
     MAX_RETRIES = skills.get("max_retries", 5)
     test_command = skills.get("test_command", ["mvn", "test"])
+    logger.info("test command is :{}", test_command)
 
     default_cleanup = [os.path.dirname(skills["test_reports_glob"]) or "."]
     cleanup_directories = skills.get("cleanup_directories", default_cleanup)
@@ -297,6 +298,7 @@ if __name__ == "__main__":
             fixed_code = generate_fix(file_path, stack_trace, exc_type, standards, skills)
             with open(file_path, "w") as file:
                 file.write(fixed_code)
+                logger.info(f"fixed code is : {fixed_code}")
                 logger.info(f"Fix applied to {file_path}")
 
             modified_files_map[file_path] = exc_type
