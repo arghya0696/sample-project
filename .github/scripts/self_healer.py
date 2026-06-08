@@ -33,7 +33,7 @@ def load_skills(file_path=".github/scripts/ai-skills.json"):
     if "test_reports_glob" not in skills or not skills["test_reports_glob"]:
         raise ValueError("Mandatory parameter 'test_reports_glob' is missing in ai-skills.json")
 
-    # --- NEW: Placeholder Validation ---
+    # --- Placeholder Validation ---
     def check_placeholders(prompt_key, required_placeholders):
         prompt_data = skills.get(prompt_key)
         if not prompt_data:
@@ -108,7 +108,18 @@ def get_failing_files_from_ai(stack_trace: str, skills: dict) -> List[str]:
     dynamic_knowledge_base = build_dynamic_context(skills)
     model_version = skills["model_version"]
 
-    default_prompt = "Identify broken files.\n{dynamic_knowledge_base}\nLog:\n{stack_trace}"
+    # --- HARDCODED PRODUCT DEFAULT ---
+    default_prompt = """Analyze the following error log to identify the main project source files that need to be modified.
+
+CRITICAL EXTRACTION CONSTRAINTS:
+1. Identify ONLY the deepest file in the stack trace that belongs to our application (the root cause). Do not return every file in the trace.
+2. DO NOT return Test classes unless the error is strictly a compilation syntax error within the test itself.
+
+{dynamic_knowledge_base}
+
+Stack Trace / Error Log:
+{stack_trace}"""
+
     raw_prompt = parse_prompt_config(skills.get("file_extraction_prompt"), default_prompt)
 
     prompt = raw_prompt.format(
@@ -126,8 +137,6 @@ def get_failing_files_from_ai(stack_trace: str, skills: dict) -> List[str]:
     )
 
     raw_output = message.content[0].text.strip()
-
-    # Log Claude's raw output so we can see exactly what it's thinking if it breaks!
     logger.info(f"AI Raw Extraction Output:\n{raw_output}")
 
     match = re.search(r'<files>\s*(.*?)\s*</files>', raw_output, re.DOTALL)
@@ -142,12 +151,10 @@ def get_failing_files_from_ai(stack_trace: str, skills: dict) -> List[str]:
 
         found_paths = []
         for file_name in file_names:
-            # 1. If Claude returned a perfectly valid relative path, use it directly
             if os.path.isfile(file_name):
                 found_paths.append(file_name)
                 continue
 
-            # 2. Otherwise, extract the base name and search the repository for it
             basename = os.path.basename(file_name)
             found = False
             for root, dirs, files in os.walk('.'):
@@ -171,7 +178,21 @@ def generate_fix(file_path, stack_trace, exc_type, coding_standards, skills):
     dynamic_knowledge_base = build_dynamic_context(skills)
     model_version = skills["model_version"]
 
-    default_sys = "Fix the code.\n{coding_standards}\n{dynamic_knowledge_base}"
+    # --- HARDCODED PRODUCT DEFAULT ---
+    default_sys = """You are a Senior Software Engineer resolving CI/CD pipeline failures.
+You must strictly adhere to the following Team Coding Standards.
+
+CRITICAL CONSTRAINTS:
+1. NEVER delete, skip, or comment out test cases to resolve a failure.
+2. NEVER alter the class name, class definition, or package declaration of the provided file.
+3. NEVER delete unrelated existing methods. Only fix the specific method causing the error.
+4. DO NOT completely rewrite the file. Keep the structure intact.
+
+### TEAM CODING STANDARDS ###
+{coding_standards}
+
+{dynamic_knowledge_base}"""
+
     raw_sys_prompt = parse_prompt_config(skills.get("fix_generation_system_prompt"), default_sys)
 
     system_instructions = raw_sys_prompt.format(
@@ -179,7 +200,17 @@ def generate_fix(file_path, stack_trace, exc_type, coding_standards, skills):
         dynamic_knowledge_base=dynamic_knowledge_base
     )
 
-    default_user = "Error: {exc_type}\nLog:\n{stack_trace}\nCode:\n{code}"
+    # --- HARDCODED PRODUCT DEFAULT ---
+    default_user = """The following code throws a {exc_type}.
+
+Error Log / Stack Trace:
+{stack_trace}
+
+Code (File: {file_path}):
+{code}
+
+Fix the {exc_type} in the code addressing the root cause indicated by the stack trace or compiler error."""
+
     raw_user_prompt = parse_prompt_config(skills.get("fix_generation_user_prompt"), default_user)
 
     user_prompt = raw_user_prompt.format(
@@ -297,7 +328,6 @@ if __name__ == "__main__":
             fixed_code = generate_fix(file_path, stack_trace, exc_type, standards, skills)
             with open(file_path, "w") as file:
                 file.write(fixed_code)
-                logger.info(f"fixed code is : {fixed_code}")
                 logger.info(f"Fix applied to {file_path}")
 
             modified_files_map[file_path] = exc_type
