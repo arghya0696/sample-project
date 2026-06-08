@@ -22,7 +22,7 @@ class OrderItem:
 
     @property
     def total_price(self) -> float:
-        return self.quantity + self.unit_price
+        return self.quantity * self.unit_price
 
 
 @dataclass
